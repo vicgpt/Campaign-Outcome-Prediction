@@ -1,0 +1,92 @@
+---
+title: "Campaign outcome modeling for "
+output: html_document
+author: 'Vishal Gupta'
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r library}
+library(MCMCpack)
+library(lme4)
+```
+
+## Goal
+
+To build a model using current campaign, past campaign and customer information to predict whether a consumer is going to subscribe term deposit once the campaign is done. An initial description of the data is a below - 
+
+
+
+
+```{r data_load}
+train = read.csv('../data/train_transformed.csv')
+test = read.csv('../data/test_transformed.csv')
+print(dim(train))
+head(train)
+```
+
+```{r summary}
+summary(train)
+```
+
+Data contains raw features, with and without transformation, as well as one hot encoded variables to ensure no more transformation is required at any later stages. Cyclicity for day of the month and month of the year is created to ensure correct representation of the information.
+
+
+## Modeling
+
+Due to high number of variables in the dataset, first a few formulation will be tried out to set up the baseline and understand the importance of variable in prediction. Further improvements and adjustment can be based on the performance and outcome of each model. 
+
+**Possible models**
+
+*1. Baseline*
+
+term_deposit_subscribed ~ job_type + marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance + last_contact_duration + num_contacts_in_campaign + num_contacts_prev_campaign + month + day_of_month + customer_age
+
+*2. Transformed variables - balance indicator and log transformed*
+
+term_deposit_subscribed ~ job_type + marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month + day_of_month + customer_age
+
+*3. Adding Cyclicity*
+
+term_deposit_subscribed ~ job_type + marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age
+
+*4. (i) Adding random effects - job_type*
+
+term_deposit_subscribed ~ marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age | job_type
+
+*4. (ii) Adding random effects - marital*
+
+term_deposit_subscribed ~ job_type + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age | marital
+
+*4. (iii) Adding random effects - education*
+
+term_deposit_subscribed ~ job_type + marital + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age | education
+
+*5. Adding multiple random effects and variable selection*
+
+Models in this step will be dependent on the outcome of the models created above. Most likely a combination of the three features - job_type, marital & education for random effects as having higher number of random effects can make it difficult for parameter estimation. Also interaction term can be created if required, but based on initial data exploration, there doesn't seem to be an opportunity for it.
+
+### First iteration for modeling
+
+**1. Baseline - logistic regression with raw inputs**
+
+```{r model1}
+base_lm = glm(term_deposit_subscribed ~ job_type + marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance + last_contact_duration + num_contacts_in_campaign + num_contacts_prev_campaign + month + day_of_month + customer_age, data=train, family=binomial(link='logit'))
+
+summary(base_lm)
+
+AIC(base_lm)
+
+base_lm_train_pred = base_lm$fitted.values
+base_lm_train_pred = as.numeric(base_lm_train_pred > 0.5)
+
+table(base_lm_train_pred, train$term_deposit_subscribed)
+
+accurac
+```
+
+
+
