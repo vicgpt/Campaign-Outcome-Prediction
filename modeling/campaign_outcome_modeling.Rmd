@@ -1,18 +1,20 @@
 ---
-title: "Campaign outcome modeling for "
+title: "Campaign outcome prediction for Bank marketing"
 output: html_document
-author: 'Vishal Gupta'
+author: 'Vishal Gupta & Vishu Agarwal'
 ---
 
-```{r setup, include=FALSE, warning=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```
 
 
-```{r library}
+```{r library, warning=FALSE, include=FALSE}
 library(MCMCpack)
 library(lme4)
 library(caret)
+library(MLmetrics)
+library(knitr)
 ```
 
 ## Goal
@@ -72,6 +74,14 @@ Models in this step will be dependent on the outcome of the models created above
 
 ### First iteration for modeling
 
+**Evaluation Criteria**
+
+We want to focus more on the customer who are more likely to create a term deposit after the campaign, as it can help identify the attributes in a customer that can make future campaigns more effective. Accuracy, for this purpose, might not be accuracy as we have a unbalanced classes case where most of the customer (>80%) dont subscribe the term deposit. *Recall (sensitivity or true positive rate) will be the primary metrics* as it evaluate the model on reducing false negative (where customer actually made a term deposit but model predicted otherwise). *Second metric of focus will be Precision*, that evaluates false positive for model performance, since they are very less customer that subscribe term deposit, predicting them as positive will not increase the campaign load significantly. Also, these can be the customers that have the potential to subscribe the term deposit in future campaigns. 
+
+```{r performnce_df}
+performance = data.frame(model=character(), recall=numeric(), precision=numeric())
+```
+
 **1. Baseline - logistic regression with raw inputs**
 
 ```{r model1}
@@ -79,15 +89,237 @@ base_lm = glm(term_deposit_subscribed ~ job_type + marital + education + default
 
 summary(base_lm)
 
+print('AIC values is ')
 AIC(base_lm)
 
 base_lm_train_pred = base_lm$fitted.values
 base_lm_train_pred = as.numeric(base_lm_train_pred > 0.5)
 
-table(base_lm_train_pred, train$term_deposit_subscribed)
+# table(base_lm_train_pred, train$term_deposit_subscribed)
+print('Train confusion matrix as below - ')
+confusionMatrix(as.factor(base_lm_train_pred), as.factor(train$term_deposit_subscribed), positive = '1')
 
-accuracy(base_lm_train_pred, train$term_deposit_subscribed)
+# for sensitivity and specificity
+act = test$term_deposit_subscribed
+pred = predict(base_lm, test)
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+
+# table(base_lm_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm
+
+model = 'Baseline LM'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+
+performance = rbind(performance, c(model, rec, pre))
+colnames(performance) = c('Model', 'Recall', 'Precision' )
+# prSummary(test_set, lev = levels(test_set$obs))
+
+# precision(as.factor(pred), as.factor(act))
+# recall(as.factor(pred), as.factor(act))
+```
+
+**2. Transformed variables - balance indicator and log transformed**
+
+```{r model2}
+glm1 = glm(term_deposit_subscribed ~ job_type + marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month + day_of_month + customer_age, data=train, family=binomial(link='logit'))
+
+summary(glm1)
+
+print('AIC values is ')
+AIC(glm1)
+
+glm1_train_pred = glm1$fitted.values
+glm1_train_pred = as.numeric(glm1_train_pred > 0.5)
+
+# table(glm1_train_pred, train$term_deposit_subscribed)
+print('Train confusion matrix as below - ')
+confusionMatrix(as.factor(glm1_train_pred), as.factor(train$term_deposit_subscribed), positive = '1')
+
+# for sensitivity and specificity
+act = test$term_deposit_subscribed
+pred = predict(glm1, test)
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+
+# table(glm1_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm
+
+model = 'LM - log balance and positive indication'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+# prSummary(test_set, lev = levels(test_set$obs), model = glm1)
+
+# precision(as.factor(pred), as.factor(act))
+# recall(as.factor(pred), as.factor(act))
+```
+
+**3. Adding Cyclicity - Month of the year and day of the month**
+
+```{r model3}
+glm2 = glm(term_deposit_subscribed ~ job_type + marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age, data=train, family=binomial(link='logit'))
+
+summary(glm2)
+
+print('AIC values is ')
+AIC(glm2)
+
+glm2_train_pred = glm2$fitted.values
+glm2_train_pred = as.numeric(glm2_train_pred > 0.5)
+
+# table(glm2_train_pred, train$term_deposit_subscribed)
+print('Train confusion matrix as below - ')
+confusionMatrix(as.factor(glm2_train_pred), as.factor(train$term_deposit_subscribed), positive = '1')
+
+# for sensitivity and specificity
+act = test$term_deposit_subscribed
+pred = predict(glm2, test)
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+
+# table(glm2_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm
+
+model = 'LM - added cyclicity'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+# prSummary(test_set, lev = levels(test_set$obs), model = glm2)
+
+# precision(as.factor(pred), as.factor(act))
+# recall(as.factor(pred), as.factor(act))
+```
+
+**4.1. Adding random effects - job_type**
+
+```{r model4_1}
+glm3 = glm(term_deposit_subscribed ~ marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age : job_type, data=train, family=binomial(link='logit'))
+
+summary(glm3)
+
+print('AIC values is ')
+AIC(glm3)
+
+glm3_train_pred = glm3$fitted.values
+glm3_train_pred = as.numeric(glm3_train_pred > 0.5)
+
+# table(glm3_train_pred, train$term_deposit_subscribed)
+print('Train confusion matrix as below - ')
+confusionMatrix(as.factor(glm3_train_pred), as.factor(train$term_deposit_subscribed), positive = '1')
+
+# for sensitivity and specificity
+act = test$term_deposit_subscribed
+pred = predict(glm3, test)
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+
+# table(glm3_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm
+
+model = 'random effect - job type'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+# prSummary(test_set, lev = levels(test_set$obs), model = glm3)
+
+# precision(as.factor(pred), as.factor(act))
+# recall(as.factor(pred), as.factor(act))
+```
+
+**4.2. Adding random effects - marital**
+
+```{r model4_2}
+glm4 = glm(term_deposit_subscribed ~ job_type + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age : marital, data=train, family=binomial(link='logit'))
+
+summary(glm4)
+
+print('AIC values is ')
+AIC(glm4)
+
+glm4_train_pred = glm4$fitted.values
+glm4_train_pred = as.numeric(glm4_train_pred > 0.5)
+
+# table(glm4_train_pred, train$term_deposit_subscribed)
+print('Train confusion matrix as below - ')
+confusionMatrix(as.factor(glm4_train_pred), as.factor(train$term_deposit_subscribed), positive = '1')
+
+# for sensitivity and specificity
+act = test$term_deposit_subscribed
+pred = predict(glm4, test)
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+
+# table(glm4_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm
+
+model = 'random effect - marital'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+# prSummary(test_set, lev = levels(test_set$obs), model = glm4)
+
+# precision(as.factor(pred), as.factor(act))
+# recall(as.factor(pred), as.factor(act))
 ```
 
 
 
+
+**4.3. Adding random effects - education**
+
+```{r model4_3}
+glm5 = glm(term_deposit_subscribed ~ job_type + marital + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age : education, data=train, family=binomial(link='logit'))
+
+summary(glm5)
+
+print('AIC values is ')
+AIC(glm5)
+
+glm5_train_pred = glm5$fitted.values
+glm5_train_pred = as.numeric(glm5_train_pred > 0.5)
+
+# table(glm5_train_pred, train$term_deposit_subscribed)
+print('Train confusion matrix as below - ')
+confusionMatrix(as.factor(glm5_train_pred), as.factor(train$term_deposit_subscribed), positive = '1')
+
+# for sensitivity and specificity
+act = test$term_deposit_subscribed
+pred = predict(glm5, test)
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+
+# table(glm5_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm
+
+model = 'random effect - education'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+# prSummary(test_set, lev = levels(test_set$obs), model = glm5)
+
+# precision(as.factor(pred), as.factor(act))
+# recall(as.factor(pred), as.factor(act))
+```
+
+```{r first_iter_output}
+kable(performance, caption='Performace of different models after first modeling iteration')
+```
