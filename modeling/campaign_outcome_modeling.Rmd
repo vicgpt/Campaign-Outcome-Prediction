@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = FALSE)
 ```{r library}
 library(MCMCpack)
 library(lme4)
+library(caret)
 ```
 
 ## Goal
@@ -85,7 +86,7 @@ base_lm_train_pred = as.numeric(base_lm_train_pred > 0.5)
 
 table(base_lm_train_pred, train$term_deposit_subscribed)
 
-accurac
+accuracy(base_lm_train_pred, train$term_deposit_subscribed)
 ```
 
 
