@@ -201,7 +201,7 @@ performance = rbind(performance, c(model, rec, pre))
 glm3 = glmer(term_deposit_subscribed ~ marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age + 1|job_type,
              data=train, 
              family=binomial(link='logit'),
-             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=10000)))
 
 summary(glm3)
 
@@ -243,7 +243,7 @@ performance = rbind(performance, c(model, rec, pre))
 glm4 = glmer(term_deposit_subscribed ~ job_type + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age + 1|marital,
              data=train, 
              family=binomial(link='logit'),
-             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=10000)))
 
 summary(glm4)
 
@@ -288,7 +288,7 @@ performance = rbind(performance, c(model, rec, pre))
 glm5 = glmer(term_deposit_subscribed ~ job_type + marital + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age + 1|education,
              data=train, 
              family=binomial(link='logit'),
-             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=10000)))
 
 summary(glm5)
 
