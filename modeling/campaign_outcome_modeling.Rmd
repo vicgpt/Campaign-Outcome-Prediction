@@ -15,6 +15,7 @@ library(lme4)
 library(caret)
 library(MLmetrics)
 library(knitr)
+library(ggplot2)
 ```
 
 ## Goal
@@ -25,15 +26,12 @@ To build a model using current campaign, past campaign and customer information 
 
 
 ```{r data_load}
-train = read.csv('../data/train_transformed.csv')
+train = read.csv('../data/train_transformed_ds.csv')
 test = read.csv('../data/test_transformed.csv')
 print(dim(train))
 head(train)
 ```
 
-```{r summary}
-summary(train)
-```
 
 Data contains raw features, with and without transformation, as well as one hot encoded variables to ensure no more transformation is required at any later stages. Cyclicity for day of the month and month of the year is created to ensure correct representation of the information.
 
@@ -195,20 +193,23 @@ performance = rbind(performance, c(model, rec, pre))
 # recall(as.factor(pred), as.factor(act))
 ```
 
+
 **4.1. Adding random effects - job_type**
 
 ```{r model4_1}
-glm3 = glmer(term_deposit_subscribed ~ marital + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age + 1|job_type,
-             data=train, 
-             family=binomial(link='logit'),
-             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=10000)))
+# glm3 = glmer(term_deposit_subscribed ~ education + housing_loan + personal_loan + communication_type + prev_campaign_outcome + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + month_sin + day_of_month_cos + log_num_contacts_prev_campaign + 1|job_type,
+#              data=train, 
+#              family=binomial(link='logit'),
+#              glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=1000)))
+glm3 = MCMChlogit(fixed=term_deposit_subscribed ~ marital + education + default + housing_loan + personal_loan + communication_type + 
+                    prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + 
+                    log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + 
+                    day_of_month_cos + customer_age, 
+                    random=~1, group='job_type', data=train, mcmc=1000, r=2, R=diag(1))
 
-summary(glm3)
+summary(glm3$mcmc)
 
-print('AIC values is ')
-AIC(glm3)
-
-glm3_train_pred = glm3$fitted.values
+glm3_train_pred = glm3$theta.pred
 glm3_train_pred = as.numeric(glm3_train_pred > 0.5)
 
 # table(glm3_train_pred, train$term_deposit_subscribed)
@@ -217,16 +218,34 @@ glm3_train_pred = as.numeric(glm3_train_pred > 0.5)
 
 # for sensitivity and specificity
 act = test$term_deposit_subscribed
-pred = predict(glm3, test)
+
+# predicting using mcmc package
+
+test$job_type_admin = as.numeric(test$job_type == 'admin')
+x_test = rbind(1, test$marital_married, test$marital_single, test$marital_unknown,
+               test$education_secondary, test$education_tertiary, test$education_unknown, 
+               test$default_yes, test$housing_loan_yes, test$personal_loan_yes, test$communication_type_telephone, test$communication_type_unknown,
+               test$prev_campaign_outcome_other, test$prev_campaign_outcome_success, test$prev_campaign_outcome_unknown, test$prev_campaign_contact_yes,
+               test$balance_ind_positive, test$log_balance, test$log_last_contact_duration, test$log_num_contacts_in_campaign, test$log_num_contacts_prev_campaign,
+               test$month_sin, test$month_cos, test$day_of_month_sin, test$day_of_month_cos, test$customer_age,
+               test$job_type_admin, test$job_type_blue.collar, test$job_type_entrepreneur, test$job_type_housemaid,
+               test$job_type_management, test$job_type_retired, test$job_type_self.employed, test$job_type_services, 
+               test$job_type_student, test$job_type_technician, test$job_type_unemployed, test$job_type_unknown)
+
+print(c(dim(x_test)[1], dim(glm3$mcmc)[2]-3))
+
+glm3_coef = apply(glm3$mcmc, c(2), mean)[1:dim(x_test)]
+pred = 1/(1 + exp(-glm3_coef %*% x_test))
+
 pred = as.numeric(pred > 0.5)
 test_set = data.frame(obs=as.factor(pred), pred=as.factor(act))
 
 # table(glm3_train_pred, train$term_deposit_subscribed)
 print('Test confusion matrix as below - ')
-cm = confusionMatrix(as.factor(act), as.factor(pred), positive = '1')
+cm = confusionMatrix(as.factor(pred), as.factor(act), positive = '1')
 cm
 
-model = 'random effect - job type'
+model = 'random effect - Job Type'
 rec = round(100*cm$byClass['Sensitivity'], 2)
 pre = round(100*cm$byClass['Pos Pred Value'], 2)
 performance = rbind(performance, c(model, rec, pre))
@@ -240,17 +259,15 @@ performance = rbind(performance, c(model, rec, pre))
 **4.2. Adding random effects - marital**
 
 ```{r model4_2}
-glm4 = glmer(term_deposit_subscribed ~ job_type + education + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age + 1|marital,
-             data=train, 
-             family=binomial(link='logit'),
-             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=10000)))
+glm4 = MCMChlogit(fixed=term_deposit_subscribed ~ job_type + education + default + housing_loan + personal_loan + communication_type + 
+                    prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + 
+                    log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + 
+                    day_of_month_cos + customer_age, 
+                    random=~1, group='marital', data=train, mcmc=1000, r=2, R=diag(1))
 
-summary(glm4)
+summary(glm4$mcmc)
 
-print('AIC values is ')
-AIC(glm4)
-
-glm4_train_pred = glm4$fitted.values
+glm4_train_pred = glm4$theta.pred
 glm4_train_pred = as.numeric(glm4_train_pred > 0.5)
 
 # table(glm4_train_pred, train$term_deposit_subscribed)
@@ -259,16 +276,34 @@ glm4_train_pred = as.numeric(glm4_train_pred > 0.5)
 
 # for sensitivity and specificity
 act = test$term_deposit_subscribed
-pred = predict(glm4, test)
+
+# predicting using mcmc package
+test$marital_divorced = as.numeric(test$marital == 'divorced')
+x_test = rbind(1, test$job_type_blue.collar, test$job_type_entrepreneur, test$job_type_housemaid,
+               test$job_type_management, test$job_type_retired, test$job_type_self.employed, test$job_type_services, 
+               test$job_type_student, test$job_type_technician, test$job_type_unemployed, test$job_type_unknown,
+               test$education_secondary, test$education_tertiary, test$education_unknown, test$default_yes,
+               test$housing_loan_yes, test$personal_loan_yes, test$communication_type_telephone, test$communication_type_unknown,
+               test$prev_campaign_outcome_other, test$prev_campaign_outcome_success, 
+               test$prev_campaign_outcome_unknown, test$prev_campaign_contact_yes,  test$balance_ind_positive, test$log_balance, test$log_last_contact_duration, test$log_num_contacts_in_campaign, test$log_num_contacts_prev_campaign, test$month_sin, test$month_cos,
+               test$day_of_month_sin, test$day_of_month_cos, test$customer_age, 
+               test$marital_divorced, test$marital_married, test$marital_single, test$marital_unknown
+               )
+print(c(dim(x_test)[1], dim(glm3$mcmc)[2]-3))
+
+glm4_coef = apply(glm4$mcmc, c(2), mean)[1:dim(x_test)]
+pred = 1/(1 + exp(-glm4_coef %*% x_test))
+
+
 pred = as.numeric(pred > 0.5)
-test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+test_set = data.frame(obs=as.factor(pred), pred=as.factor(act))
 
 # table(glm4_train_pred, train$term_deposit_subscribed)
 print('Test confusion matrix as below - ')
 cm = confusionMatrix(as.factor(pred), as.factor(act), positive = '1')
 cm
 
-model = 'random effect - marital'
+model = 'random effect - Marital'
 rec = round(100*cm$byClass['Sensitivity'], 2)
 pre = round(100*cm$byClass['Pos Pred Value'], 2)
 performance = rbind(performance, c(model, rec, pre))
@@ -285,17 +320,15 @@ performance = rbind(performance, c(model, rec, pre))
 **4.3. Adding random effects - education**
 
 ```{r model4_3}
-glm5 = glmer(term_deposit_subscribed ~ job_type + marital + default + housing_loan + personal_loan + communication_type + prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + day_of_month_cos + customer_age + 1|education,
-             data=train, 
-             family=binomial(link='logit'),
-             glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=10000)))
+glm5 = MCMChlogit(fixed=term_deposit_subscribed ~ job_type + marital + default + housing_loan + personal_loan + communication_type + 
+                    prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + 
+                    log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + 
+                    day_of_month_cos + customer_age, 
+                    random=~1, group='education', data=train, mcmc=1000, r=2, R=diag(1))
 
-summary(glm5)
+summary(glm5$mcmc)
 
-print('AIC values is ')
-AIC(glm5)
-
-glm5_train_pred = glm5$fitted.values
+glm5_train_pred = glm5$theta.pred
 glm5_train_pred = as.numeric(glm5_train_pred > 0.5)
 
 # table(glm5_train_pred, train$term_deposit_subscribed)
@@ -304,16 +337,34 @@ glm5_train_pred = as.numeric(glm5_train_pred > 0.5)
 
 # for sensitivity and specificity
 act = test$term_deposit_subscribed
-pred = predict(glm5, test)
+
+# predicting using mcmc package
+test$education_primary = as.numeric(test$education == 'primary')
+x_test = rbind(1, test$job_type_blue.collar, test$job_type_entrepreneur, test$job_type_housemaid,
+               test$job_type_management, test$job_type_retired, test$job_type_self.employed, test$job_type_services, 
+               test$job_type_student, test$job_type_technician, test$job_type_unemployed, test$job_type_unknown,
+               test$marital_married, test$marital_single, test$marital_unknown, test$default_yes,
+               test$housing_loan_yes, test$personal_loan_yes, test$communication_type_telephone, test$communication_type_unknown,
+               test$prev_campaign_outcome_other, test$prev_campaign_outcome_success, 
+               test$prev_campaign_outcome_unknown, test$prev_campaign_contact_yes,  test$balance_ind_positive, test$log_balance, test$log_last_contact_duration, test$log_num_contacts_in_campaign, test$log_num_contacts_prev_campaign, test$month_sin, test$month_cos,
+               test$day_of_month_sin, test$day_of_month_cos, test$customer_age,
+               test$education_primary, test$education_secondary, test$education_tertiary, test$education_unknown
+               )
+print(c(dim(x_test)[1], dim(glm3$mcmc)[2]-3))
+
+glm5_coef = apply(glm5$mcmc, c(2), mean)[1:dim(x_test)]
+pred = 1/(1 + exp(-glm5_coef %*% x_test))
+
+
 pred = as.numeric(pred > 0.5)
-test_set = data.frame(obs=as.factor(act), pred=as.factor(pred))
+test_set = data.frame(obs=as.factor(pred), pred=as.factor(act))
 
 # table(glm5_train_pred, train$term_deposit_subscribed)
 print('Test confusion matrix as below - ')
 cm = confusionMatrix(as.factor(pred), as.factor(act), positive = '1')
 cm
 
-model = 'random effect - education'
+model = 'Random effect - Education'
 rec = round(100*cm$byClass['Sensitivity'], 2)
 pre = round(100*cm$byClass['Pos Pred Value'], 2)
 performance = rbind(performance, c(model, rec, pre))
@@ -329,19 +380,151 @@ kable(performance, caption='Performace of different models after first modeling 
 ```
 
 
+### Model improvement
 
 
-### Model improvement (second iteration)
+<!-- **Adding multiple random effects** -->
 
-**Adding multiple random effects**
+<!-- Job Type, Marital status and Education level, all these three random effects have improved performance significantly, hence we will try a model formulation having all three random effects. Since  -->
 
-Models in this step will be dependent on the outcome of the models created above. Most likely a combination of the three features - job_type, marital & education for random effects as having higher number of random effects can make it difficult for parameter estimation. Also interaction term can be created if required, but based on initial data exploration, there doesn't seem to be an opportunity for it.
+*Multiple random effects*
+Based on the performance we can note that job type as hierarchical group has performed a lot better, hence it will be used along with education and marital status as random effect.
 
-Job Type, Marital status and Education level, all these three random effects have improved performance, hence we will try a model formulation having all three random effects.
+*Interaction*
+Possible interaction terms - 
+1. Log balance with balance indicator - this will make the model assume zero balance and truncate the distribution for negative values
+2. Previous contact flag with number of contacts in previous campaign
+3. Balance can have different impact on probability of term deposit subscription hence it can be used as random effect
 
-**Interaction**
-Log balance with balance indicator
+*Variable selection*
+Based on significant variable in linear models we can try using statistically significant variables
 
-**Variable selection**
-Month sin
-Day of month cos
+
+**Enhancement - Marital and education random effects with job type group**
+
+```{r model5_1}
+glm_i1 = MCMChlogit(fixed=term_deposit_subscribed ~ default + housing_loan + personal_loan + communication_type + 
+                    prev_campaign_outcome + prev_campaign_contact + balance_ind_positive + log_balance + log_last_contact_duration + 
+                    log_num_contacts_in_campaign + log_num_contacts_prev_campaign + month_sin + month_cos + day_of_month_sin + 
+                    day_of_month_cos + customer_age, 
+                    random=~1+marital+education, group='job_type', data=train, mcmc=1000, r=8, R=diag(7))
+
+summary(glm_i1$mcmc)
+
+# predicting using mcmc package
+x_test = rbind(1, test$default_yes,
+               test$housing_loan_yes, test$personal_loan_yes, test$communication_type_telephone, test$communication_type_unknown,
+               test$prev_campaign_outcome_other, test$prev_campaign_outcome_success, 
+               test$prev_campaign_outcome_unknown, test$prev_campaign_contact_yes,  test$balance_ind_positive, test$log_balance, test$log_last_contact_duration, test$log_num_contacts_in_campaign, test$log_num_contacts_prev_campaign, test$month_sin, test$month_cos,
+               test$day_of_month_sin, test$day_of_month_cos, test$customer_age,
+               test$job_type_admin, test$job_type_blue.collar, test$job_type_entrepreneur, test$job_type_housemaid,
+               test$job_type_management, test$job_type_retired, test$job_type_self.employed, test$job_type_services, 
+               test$job_type_student, test$job_type_technician, test$job_type_unemployed, test$job_type_unknown,
+               test$marital_married*test$job_type_admin , 	test$marital_married*test$job_type_blue.collar , 	test$marital_married*test$job_type_entrepreneur , 	test$marital_married*test$job_type_housemaid , 	test$marital_married*test$job_type_management , 	test$marital_married*test$job_type_retired , 	test$marital_married*test$job_type_self.employed , 	test$marital_married*test$job_type_services , 	test$marital_married*test$job_type_student , 	test$marital_married*test$job_type_technician , 	test$marital_married*test$job_type_unemployed , 	test$marital_married*test$job_type_unknown , 	test$marital_single*test$job_type_admin , 	test$marital_single*test$job_type_blue.collar , 	test$marital_single*test$job_type_entrepreneur , 	test$marital_single*test$job_type_housemaid , 	test$marital_single*test$job_type_management , 	test$marital_single*test$job_type_retired , 	test$marital_single*test$job_type_self.employed , 	test$marital_single*test$job_type_services , 	test$marital_single*test$job_type_student , 	test$marital_single*test$job_type_technician , 	test$marital_single*test$job_type_unemployed , 	test$marital_single*test$job_type_unknown , 	test$marital_unknown*test$job_type_admin , 	test$marital_unknown*test$job_type_blue.collar , 	test$marital_unknown*test$job_type_entrepreneur , 	test$marital_unknown*test$job_type_housemaid , 	test$marital_unknown*test$job_type_management , 	test$marital_unknown*test$job_type_retired , 	test$marital_unknown*test$job_type_self.employed , 	test$marital_unknown*test$job_type_services , 	test$marital_unknown*test$job_type_student , 	test$marital_unknown*test$job_type_technician , 	test$marital_unknown*test$job_type_unemployed , 	test$marital_unknown*test$job_type_unknown , 	test$education_secondary*test$job_type_admin , 	test$education_secondary*test$job_type_blue.collar , 	test$education_secondary*test$job_type_entrepreneur , 	test$education_secondary*test$job_type_housemaid , 	test$education_secondary*test$job_type_management , 	test$education_secondary*test$job_type_retired , 	test$education_secondary*test$job_type_self.employed , 	test$education_secondary*test$job_type_services , 	test$education_secondary*test$job_type_student , 	test$education_secondary*test$job_type_technician , 	test$education_secondary*test$job_type_unemployed , 	test$education_secondary*test$job_type_unknown , 	test$education_tertiary*test$job_type_admin , 	test$education_tertiary*test$job_type_blue.collar , 	test$education_tertiary*test$job_type_entrepreneur , 	test$education_tertiary*test$job_type_housemaid , 	test$education_tertiary*test$job_type_management , 	test$education_tertiary*test$job_type_retired , 	test$education_tertiary*test$job_type_self.employed , 	test$education_tertiary*test$job_type_services , 	test$education_tertiary*test$job_type_student , 	test$education_tertiary*test$job_type_technician , 	test$education_tertiary*test$job_type_unemployed , 	test$education_tertiary*test$job_type_unknown , 	test$education_unknown*test$job_type_admin , 	test$education_unknown*test$job_type_blue.collar , 	test$education_unknown*test$job_type_entrepreneur , 	test$education_unknown*test$job_type_housemaid , 	test$education_unknown*test$job_type_management , 	test$education_unknown*test$job_type_retired , 	test$education_unknown*test$job_type_self.employed , 	test$education_unknown*test$job_type_services , 	test$education_unknown*test$job_type_student , 	test$education_unknown*test$job_type_technician , 	test$education_unknown*test$job_type_unemployed , 	test$education_unknown*test$job_type_unknown 
+               )
+# print(c(dim(x_test)[1], dim(glm_i1$mcmc)[2]-3))
+
+glm_i1_coef = apply(glm_i1$mcmc, c(2), mean)[1:dim(x_test)]
+pred = 1/(1 + exp(-glm_i1_coef %*% x_test))
+
+
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(pred), pred=as.factor(act))
+
+# table(glm_i1_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(pred), as.factor(act), positive = '1')
+cm
+
+model = 'Random effect - Marital + Education | Job type'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+
+```
+
+Performance has decreased by adding more complexity to the model, as the dataset is the same but number of parameters have increased drastically.
+
+**Enhancement - Job type group with variable selection and interaction terms**
+
+```{r model5_2}
+glm_i2 = MCMChlogit(fixed=term_deposit_subscribed ~  housing_loan + personal_loan + communication_type + 
+                    prev_campaign_outcome + prev_campaign_contact_yes:log_num_contacts_prev_campaign  + balance_ind_positive:log_balance +
+                    log_num_contacts_in_campaign + log_last_contact_duration + month_sin + 
+                    day_of_month_cos, 
+                    random=~1+marital+education, group='job_type', data=train, mcmc=1000, r=8, R=diag(7))
+
+summary(glm_i2$mcmc)
+
+# predicting using mcmc package
+x_test = rbind(1,
+               test$housing_loan_yes, test$personal_loan_yes, 
+               test$communication_type_telephone, test$communication_type_unknown, 
+               test$prev_campaign_outcome_other, test$prev_campaign_outcome_success, test$prev_campaign_outcome_unknown, 
+               test$log_num_contacts_in_campaign,
+               test$log_last_contact_duration,
+               test$month_sin, test$day_of_month_cos,
+               
+               test$prev_campaign_contact_yes*test$log_num_contacts_prev_campaign,  
+               test$balance_ind_positive*test$log_balance, test$log_last_contact_duration, 
+               
+               test$job_type_admin, test$job_type_blue.collar, test$job_type_entrepreneur, test$job_type_housemaid,
+               test$job_type_management, test$job_type_retired, test$job_type_self.employed, test$job_type_services, 
+               test$job_type_student, test$job_type_technician, test$job_type_unemployed, test$job_type_unknown,
+               test$marital_married*test$job_type_admin , 	test$marital_married*test$job_type_blue.collar , 	test$marital_married*test$job_type_entrepreneur , 	test$marital_married*test$job_type_housemaid , 	test$marital_married*test$job_type_management , 	test$marital_married*test$job_type_retired , 	test$marital_married*test$job_type_self.employed , 	test$marital_married*test$job_type_services , 	test$marital_married*test$job_type_student , 	test$marital_married*test$job_type_technician , 	test$marital_married*test$job_type_unemployed , 	test$marital_married*test$job_type_unknown , 	test$marital_single*test$job_type_admin , 	test$marital_single*test$job_type_blue.collar , 	test$marital_single*test$job_type_entrepreneur , 	test$marital_single*test$job_type_housemaid , 	test$marital_single*test$job_type_management , 	test$marital_single*test$job_type_retired , 	test$marital_single*test$job_type_self.employed , 	test$marital_single*test$job_type_services , 	test$marital_single*test$job_type_student , 	test$marital_single*test$job_type_technician , 	test$marital_single*test$job_type_unemployed , 	test$marital_single*test$job_type_unknown , 	test$marital_unknown*test$job_type_admin , 	test$marital_unknown*test$job_type_blue.collar , 	test$marital_unknown*test$job_type_entrepreneur , 	test$marital_unknown*test$job_type_housemaid , 	test$marital_unknown*test$job_type_management , 	test$marital_unknown*test$job_type_retired , 	test$marital_unknown*test$job_type_self.employed , 	test$marital_unknown*test$job_type_services , 	test$marital_unknown*test$job_type_student , 	test$marital_unknown*test$job_type_technician , 	test$marital_unknown*test$job_type_unemployed , 	test$marital_unknown*test$job_type_unknown , 	test$education_secondary*test$job_type_admin , 	test$education_secondary*test$job_type_blue.collar , 	test$education_secondary*test$job_type_entrepreneur , 	test$education_secondary*test$job_type_housemaid , 	test$education_secondary*test$job_type_management , 	test$education_secondary*test$job_type_retired , 	test$education_secondary*test$job_type_self.employed , 	test$education_secondary*test$job_type_services , 	test$education_secondary*test$job_type_student , 	test$education_secondary*test$job_type_technician , 	test$education_secondary*test$job_type_unemployed , 	test$education_secondary*test$job_type_unknown , 	test$education_tertiary*test$job_type_admin , 	test$education_tertiary*test$job_type_blue.collar , 	test$education_tertiary*test$job_type_entrepreneur , 	test$education_tertiary*test$job_type_housemaid , 	test$education_tertiary*test$job_type_management , 	test$education_tertiary*test$job_type_retired , 	test$education_tertiary*test$job_type_self.employed , 	test$education_tertiary*test$job_type_services , 	test$education_tertiary*test$job_type_student , 	test$education_tertiary*test$job_type_technician , 	test$education_tertiary*test$job_type_unemployed , 	test$education_tertiary*test$job_type_unknown , 	test$education_unknown*test$job_type_admin , 	test$education_unknown*test$job_type_blue.collar , 	test$education_unknown*test$job_type_entrepreneur , 	test$education_unknown*test$job_type_housemaid , 	test$education_unknown*test$job_type_management , 	test$education_unknown*test$job_type_retired , 	test$education_unknown*test$job_type_self.employed , 	test$education_unknown*test$job_type_services , 	test$education_unknown*test$job_type_student , 	test$education_unknown*test$job_type_technician , 	test$education_unknown*test$job_type_unemployed , 	test$education_unknown*test$job_type_unknown 
+               )
+# print(c(dim(x_test)[1], dim(glm_i2$mcmc)[2]-3))
+
+glm_i2_coef = apply(glm_i2$mcmc, c(2), mean)[1:dim(x_test)]
+pred = 1/(1 + exp(-glm_i2_coef %*% x_test))
+
+
+pred = as.numeric(pred > 0.5)
+test_set = data.frame(obs=as.factor(pred), pred=as.factor(act))
+
+# table(glm_i2_train_pred, train$term_deposit_subscribed)
+print('Test confusion matrix as below - ')
+cm = confusionMatrix(as.factor(pred), as.factor(act), positive = '1')
+cm
+
+model = 'Random effect - Variable selection & Interactions'
+rec = round(100*cm$byClass['Sensitivity'], 2)
+pre = round(100*cm$byClass['Pos Pred Value'], 2)
+performance = rbind(performance, c(model, rec, pre))
+
+
+```
+
+
+### Final Results & Impact
+
+Recall & Precision for all the models are as below - 
+
+```{r final_performance}
+kable(performance, caption='Performace of all models')
+
+customer_base_redn = round(100*sum(cm$table[1, ])/sum(cm$table), 1)
+customer_miss = round(100*sum(cm$table[1, 2])/sum(cm$table[, 2]), 1)
+
+print(c(customer_miss, customer_base_redn))
+```
+
+As we can observe, the final improvements with variables selection, adding interaction terms of customer balance & previous campaign contact with random effects is performing the best with 98.3% recall. The probability distribution curve of different classes can be seen as below
+
+Based on the analysis we can reduce the customer base by `r customer_base_redn`% though loosing on only `r customer_miss`% customer who would have subscribed to term deposit
+
+
+```{r class_prob_distribution, warning=FALSE}
+glm_i2_coef = apply(glm_i2$mcmc, c(2), mean)[1:dim(x_test)]
+pred = 1/(1 + exp(-glm_i2_coef %*% x_test))
+
+test_set = data.frame(act=as.vector(pred), pred=as.vector(act))
+
+ggplot(test_set, aes(x = act)) + 
+  geom_histogram(binwidth = .05) + 
+  facet_wrap(~pred) + 
+  xlab("Probability of Class #1")
+
+```
+
