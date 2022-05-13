@@ -16,6 +16,7 @@ library(caret)
 library(MLmetrics)
 library(knitr)
 library(ggplot2)
+library(gridExtra)
 ```
 
 ## Goal
@@ -388,15 +389,19 @@ kable(performance, caption='Performace of different models after first modeling 
 <!-- Job Type, Marital status and Education level, all these three random effects have improved performance significantly, hence we will try a model formulation having all three random effects. Since  -->
 
 *Multiple random effects*
+
 Based on the performance we can note that job type as hierarchical group has performed a lot better, hence it will be used along with education and marital status as random effect.
 
 *Interaction*
+
 Possible interaction terms - 
+
 1. Log balance with balance indicator - this will make the model assume zero balance and truncate the distribution for negative values
 2. Previous contact flag with number of contacts in previous campaign
 3. Balance can have different impact on probability of term deposit subscription hence it can be used as random effect
 
 *Variable selection*
+
 Based on significant variable in linear models we can try using statistically significant variables
 
 
@@ -409,7 +414,7 @@ glm_i1 = MCMChlogit(fixed=term_deposit_subscribed ~ default + housing_loan + per
                     day_of_month_cos + customer_age, 
                     random=~1+marital+education, group='job_type', data=train, mcmc=1000, r=8, R=diag(7))
 
-summary(glm_i1$mcmc)
+# summary(glm_i1$mcmc)
 
 # predicting using mcmc package
 x_test = rbind(1, test$default_yes,
@@ -455,7 +460,7 @@ glm_i2 = MCMChlogit(fixed=term_deposit_subscribed ~  housing_loan + personal_loa
                     day_of_month_cos, 
                     random=~1+marital+education, group='job_type', data=train, mcmc=1000, r=8, R=diag(7))
 
-summary(glm_i2$mcmc)
+# summary(glm_i2$mcmc)
 
 # predicting using mcmc package
 x_test = rbind(1,
@@ -501,6 +506,9 @@ performance = rbind(performance, c(model, rec, pre))
 
 Recall & Precision for all the models are as below - 
 
+
+**Final Performance**
+
 ```{r final_performance}
 kable(performance, caption='Performace of all models')
 
@@ -524,7 +532,83 @@ test_set = data.frame(act=as.vector(pred), pred=as.vector(act))
 ggplot(test_set, aes(x = act)) + 
   geom_histogram(binwidth = .05) + 
   facet_wrap(~pred) + 
-  xlab("Probability of Class #1")
+  xlab("Probability of subscribing term deposit")
 
 ```
+
+**Interpretations**
+
+```{r interpretation}
+# ts plot of 
+coef_names = names(glm_i2_coef[1:26])
+coef_names = gsub(".((Intercept)).", "intercept", as.vector(coef_names))
+coef_names = gsub("-", "_", as.vector(coef_names))
+i2_coef = as.data.frame(glm_i2$mcmc)
+i2_coef = i2_coef[, 1:26]
+colnames(i2_coef) = coef_names
+
+mean_i2_coef = apply(i2_coef, 2, mean)
+low_coef_val = sort(mean_i2_coef)[1:6]
+high_coef_val = sort(mean_i2_coef, decreasing = TRUE)[1:6]
+imp_coef = c(high_coef_val, low_coef_val)
+imp_coef_names = names(imp_coef)
+i2_coef = i2_coef[, imp_coef_names]
+
+
+
+p1 = ggplot(i2_coef, aes(x=beta.prev_campaign_outcomesuccess))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p2 = ggplot(i2_coef, aes(x=beta.log_last_contact_duration))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p3 = ggplot(i2_coef, aes(x=b.intercept.retired))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p4 = ggplot(i2_coef, aes(x=b.intercept.self_employed))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+
+p5 = ggplot(i2_coef, aes(x=b.intercept.housemaid))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p6 = ggplot(i2_coef, aes(x=b.intercept.student))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p7 = ggplot(i2_coef, aes(x=beta.intercept))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p8 = ggplot(i2_coef, aes(x=b.intercept.unknown))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+
+p9 = ggplot(i2_coef, aes(x=beta.communication_typeunknown))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p10 = ggplot(i2_coef, aes(x=beta.housing_loanyes))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p11 = ggplot(i2_coef, aes(x=b.intercept.management))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+p12 = ggplot(i2_coef, aes(x=beta.personal_loanyes))+
+    geom_histogram(color="darkblue", fill="lightblue", bins=15)
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, nrow = 4, ncol=3)
+
+kable(as.data.frame(imp_coef), caption='Performace of all models')
+```
+
+Based on the chain distribution, we can infer that only Job-type: Student variable can not be significant as 0 lies well within the distribution range, but rest of the other variables in the table above can be considered as statistically significant. The high intercept value indicates that by default the probability of subscribing the term deposit will be lower, and it could increase significantly for the following cases – 
+
+1.	if the outcome of previous campaign with the customer is positive
+2.	current campaign contact duration was high
+3.	if the customer is retired, self-employed, housemaid or a student 
+
+Similarly, the probability of the customer subscribing the term deposit will go down for the following cases – 
+
+1.	if job type is unknown or management
+2.	if the communication channel is unknown for the campaign
+3.	if the customer already has a housing or a personal loan
+
 
